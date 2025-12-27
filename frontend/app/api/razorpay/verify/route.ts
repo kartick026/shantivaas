@@ -45,6 +45,93 @@ export async function POST(req: Request) {
         }
 
         // 3. Record Payment in Database
+        // If rentCycleId is null, allocate to oldest pending cycles (multi-cycle payment)
+        if (!rentCycleId) {
+            const { createAdminClient } = await import('@/lib/supabase/admin')
+            const supabaseAdmin = createAdminClient()
+            
+            // Get pending cycles
+            const { data: pendingCycles, error: cyclesError } = await supabaseAdmin
+                .rpc('get_pending_rent_cycles', { p_tenant_id: tenant.id })
+            
+            if (cyclesError || !pendingCycles || pendingCycles.length === 0) {
+                return NextResponse.json({ 
+                    error: 'No pending rent cycles found. Please contact admin.' 
+                }, { status: 400 })
+            }
+            
+            let remainingAmount = amount
+            const paymentsCreated: string[] = []
+            
+            // Allocate payment across cycles (oldest first)
+            for (const cycle of pendingCycles) {
+                if (remainingAmount <= 0) break
+                
+                const pendingAmount = parseFloat(cycle.pending_amount?.toString() || '0')
+                const cyclePayment = Math.min(remainingAmount, pendingAmount)
+                
+                if (cyclePayment > 0) {
+                    const { error: paymentError } = await supabaseAdmin
+                        .from('payments')
+                        .insert({
+                            tenant_id: tenant.id,
+                            rent_cycle_id: cycle.id,
+                            amount: cyclePayment,
+                            payment_mode: 'ONLINE_GATEWAY',
+                            razorpay_payment_id: razorpay_payment_id,
+                            razorpay_order_id: razorpay_order_id,
+                            razorpay_signature: razorpay_signature,
+                            is_verified: true,
+                            notes: `Online payment: Order ${razorpay_order_id} - Multi-cycle allocation`
+                        })
+                    
+                    if (paymentError && paymentError.code !== '23505') {
+                        console.error('Error creating payment for cycle:', cycle.id, paymentError)
+                    } else {
+                        paymentsCreated.push(cycle.id)
+                        remainingAmount -= cyclePayment
+                    }
+                }
+            }
+            
+            // Handle advance payment if remaining
+            if (remainingAmount > 0) {
+                const now = new Date()
+                const nextMonth = now.getMonth() + 2
+                const nextYear = nextMonth > 12 ? now.getFullYear() + 1 : now.getFullYear()
+                const actualMonth = nextMonth > 12 ? 1 : nextMonth
+                
+                const { data: advanceCycleId, error: advanceError } = await supabaseAdmin
+                    .rpc('get_or_create_rent_cycle', {
+                        p_tenant_id: tenant.id,
+                        p_month: actualMonth,
+                        p_year: nextYear
+                    })
+                
+                if (!advanceError && advanceCycleId) {
+                    await supabaseAdmin
+                        .from('payments')
+                        .insert({
+                            tenant_id: tenant.id,
+                            rent_cycle_id: advanceCycleId,
+                            amount: remainingAmount,
+                            payment_mode: 'ONLINE_GATEWAY',
+                            razorpay_payment_id: razorpay_payment_id,
+                            razorpay_order_id: razorpay_order_id,
+                            razorpay_signature: razorpay_signature,
+                            is_verified: true,
+                            notes: `Online payment: Order ${razorpay_order_id} - Advance payment`
+                        })
+                }
+            }
+            
+            return NextResponse.json({ 
+                success: true,
+                message: `Payment allocated across ${paymentsCreated.length} cycle(s)`
+            })
+        }
+        
+        // Single cycle payment (can be partial)
         const { error: paymentError } = await supabase
             .from('payments')
             .insert({
@@ -53,12 +140,23 @@ export async function POST(req: Request) {
                 amount: amount,
                 payment_date: new Date().toISOString().split('T')[0],
                 payment_mode: 'ONLINE_GATEWAY',
-                gateway_transaction_id: razorpay_payment_id,
-                is_verified: true, // Auto-verified since signature matched
+                razorpay_payment_id: razorpay_payment_id,
+                razorpay_order_id: razorpay_order_id,
+                razorpay_signature: razorpay_signature,
+                is_verified: true,
                 notes: `Order: ${razorpay_order_id}`
             })
 
-        if (paymentError) throw paymentError
+        if (paymentError) {
+            // Check if it's a duplicate payment
+            if (paymentError.code === '23505') {
+                return NextResponse.json({ 
+                    success: true,
+                    message: 'Payment already recorded' 
+                })
+            }
+            throw paymentError
+        }
 
         return NextResponse.json({ success: true })
 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { ArrowLeft, User, Phone, Mail, Building2, Calendar, AlertCircle, Save, IndianRupee, FileText, Upload, Image as ImageIcon, MapPin } from 'lucide-react'
 
 export default function NewTenantPage() {
     const [formData, setFormData] = useState({
@@ -14,9 +15,20 @@ export default function NewTenantPage() {
         individual_rent: '',
         join_date: new Date().toISOString().split('T')[0],
         emergency_contact: '',
+        password: 'Tenant@123',
+        id_proof_url: '',
+        address_proof_url: '',
+        photo_url: ''
     })
+    const [fileStatus, setFileStatus] = useState({
+        aadhar: { uploading: false, error: null as string | null, success: false },
+        address: { uploading: false, error: null as string | null, success: false },
+        photo: { uploading: false, error: null as string | null, success: false }
+    })
+
     const [rooms, setRooms] = useState<any[]>([])
     const [loading, setLoading] = useState(false)
+    const [pageLoading, setPageLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const router = useRouter()
     const supabase = createClient()
@@ -27,21 +39,57 @@ export default function NewTenantPage() {
             const { data } = await supabase
                 .from('rooms')
                 .select(`
-          *,
-          floors(
-            floor_number,
-            buildings(name)
-          )
-        `)
+                  id,
+                  room_number,
+                  monthly_rent,
+                  floors(
+                    floor_number,
+                    buildings(name)
+                  )
+                `)
                 .eq('is_active', true)
                 .order('room_number')
 
             if (data) {
                 setRooms(data)
             }
+            setPageLoading(false)
         }
         loadRooms()
     }, [])
+
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'aadhar' | 'address' | 'photo') => {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        setFileStatus(prev => ({ ...prev, [type]: { uploading: true, error: null, success: false } }))
+
+        try {
+            const fileExt = file.name.split('.').pop()
+            const fileName = `${type}_${Date.now()}.${fileExt}`
+            const filePath = `${fileName}`
+
+            const { error: uploadError, data } = await supabase.storage
+                .from('tenant-documents')
+                .upload(filePath, file)
+
+            if (uploadError) throw uploadError
+
+            // Get Public URL
+            const { data: { publicUrl } } = supabase.storage
+                .from('tenant-documents')
+                .getPublicUrl(filePath)
+
+            // Update form data with URL
+            const urlField = type === 'aadhar' ? 'id_proof_url' : type === 'address' ? 'address_proof_url' : 'photo_url'
+            setFormData(prev => ({ ...prev, [urlField]: publicUrl }))
+
+            setFileStatus(prev => ({ ...prev, [type]: { uploading: false, error: null, success: true } }))
+        } catch (err: any) {
+            console.error('Upload failed:', err)
+            setFileStatus(prev => ({ ...prev, [type]: { uploading: false, error: 'Upload failed', success: false } }))
+        }
+    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -49,49 +97,21 @@ export default function NewTenantPage() {
         setError(null)
 
         try {
-            // 1. Create user in auth.users (using admin API would be ideal, but we'll guide the admin)
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: formData.email,
-                phone: formData.phone,
-                options: {
-                    data: {
-                        full_name: formData.full_name,
-                    },
-                },
+            const response = await fetch('/api/admin/create-tenant', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData)
             })
 
-            if (authError) throw authError
-            if (!authData.user) throw new Error('Failed to create user')
+            const result = await response.json()
 
-            // 2. Create user profile
-            const { error: profileError } = await supabase
-                .from('user_profiles')
-                .insert({
-                    id: authData.user.id,
-                    role: 'tenant',
-                    full_name: formData.full_name,
-                    email: formData.email,
-                    phone: formData.phone,
-                })
-
-            if (profileError) throw profileError
-
-            // 3. Create tenant record
-            const { error: tenantError } = await supabase
-                .from('tenants')
-                .insert({
-                    user_id: authData.user.id,
-                    room_id: formData.room_id || null,
-                    individual_rent: parseFloat(formData.individual_rent),
-                    join_date: formData.join_date,
-                    emergency_contact: formData.emergency_contact,
-                    is_active: true,
-                })
-
-            if (tenantError) throw tenantError
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to create tenant')
+            }
 
             // Redirect to tenants list
             router.push('/admin/tenants')
+            router.refresh()
         } catch (err: any) {
             setError(err.message || 'Failed to create tenant')
         } finally {
@@ -99,178 +119,278 @@ export default function NewTenantPage() {
         }
     }
 
+    if (pageLoading) {
+        return <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-zinc-500">Loading...</div>
+    }
+
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 font-sans">
             {/* Header */}
-            <header className="bg-white shadow-sm border-b border-gray-200">
-                <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <header className="bg-[#111] border-b border-zinc-900 sticky top-0 z-30">
+                <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     <div className="flex items-center gap-4">
-                        <Link href="/admin/tenants" className="text-gray-600 hover:text-gray-900">
-                            ← Back
+                        <Link href="/admin/tenants" className="text-zinc-400 hover:text-white transition-colors">
+                            <ArrowLeft className="w-5 h-5" />
                         </Link>
-                        <h1 className="text-2xl font-bold text-gray-900">Add New Tenant</h1>
+                        <h1 className="text-xl font-bold text-white">Add New Tenant</h1>
                     </div>
                 </div>
             </header>
 
             {/* Form */}
-            <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                <div className="bg-white rounded-lg shadow p-6">
+            <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div className="bg-[#151515] rounded-xl border border-zinc-800 p-6 shadow-xl relative overflow-hidden">
+
                     {error && (
-                        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                            <p className="text-sm text-red-800">{error}</p>
+                        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2 animate-pulse">
+                            <AlertCircle className="w-5 h-5" />
+                            <span className="text-sm">{error}</span>
                         </div>
                     )}
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        {/* Personal Information */}
-                        <div>
-                            <h3 className="text-lg font-medium text-gray-900 mb-4">Personal Information</h3>
-                            <div className="grid grid-cols-1 gap-6">
-                                <div>
-                                    <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-2">
-                                        Full Name *
+                    <form onSubmit={handleSubmit} className="space-y-8">
+                        {/* 1. Personal Information */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium text-white flex items-center gap-2 border-b border-zinc-800 pb-2">
+                                <User className="w-5 h-5 text-[#bef264]" /> Personal Information
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="md:col-span-2">
+                                    <label htmlFor="full_name" className="block text-sm font-medium text-zinc-400 mb-2">
+                                        Full Name
                                     </label>
-                                    <input
-                                        id="full_name"
-                                        type="text"
-                                        required
-                                        value={formData.full_name}
-                                        onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                        placeholder="John Doe"
-                                    />
+                                    <div className="relative">
+                                        <User className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="full_name"
+                                            type="text"
+                                            required
+                                            value={formData.full_name}
+                                            onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
+                                            placeholder="e.g. Rahul Sharma"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>
-                                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                                        Email Address *
+                                    <label htmlFor="email" className="block text-sm font-medium text-zinc-400 mb-2">
+                                        Email Address
                                     </label>
-                                    <input
-                                        id="email"
-                                        type="email"
-                                        required
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                        placeholder="john@example.com"
-                                    />
+                                    <div className="relative">
+                                        <Mail className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="email"
+                                            type="email"
+                                            required
+                                            value={formData.email}
+                                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
+                                            placeholder="rahul@example.com"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>
-                                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                                        Phone Number *
+                                    <label htmlFor="phone" className="block text-sm font-medium text-zinc-400 mb-2">
+                                        Phone Number
                                     </label>
-                                    <input
-                                        id="phone"
-                                        type="tel"
-                                        required
-                                        value={formData.phone}
-                                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                        placeholder="+919876543210"
-                                    />
-                                    <p className="mt-1 text-xs text-gray-500">Include country code (e.g., +91)</p>
+                                    <div className="relative">
+                                        <Phone className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="phone"
+                                            type="tel"
+                                            required
+                                            value={formData.phone}
+                                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
+                                            placeholder="+91 98765 43210"
+                                        />
+                                    </div>
                                 </div>
 
-                                <div>
-                                    <label htmlFor="emergency_contact" className="block text-sm font-medium text-gray-700 mb-2">
+                                <div className="md:col-span-2">
+                                    <label htmlFor="emergency_contact" className="block text-sm font-medium text-zinc-400 mb-2">
                                         Emergency Contact
                                     </label>
-                                    <input
-                                        id="emergency_contact"
-                                        type="tel"
-                                        value={formData.emergency_contact}
-                                        onChange={(e) => setFormData({ ...formData, emergency_contact: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                        placeholder="+919876543211"
-                                    />
+                                    <div className="relative">
+                                        <Phone className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="emergency_contact"
+                                            type="tel"
+                                            value={formData.emergency_contact}
+                                            onChange={(e) => setFormData({ ...formData, emergency_contact: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
+                                            placeholder="Parent/Guardian Number"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Room Assignment */}
-                        <div>
-                            <h3 className="text-lg font-medium text-gray-900 mb-4">Room Assignment</h3>
+                        {/* 2. Documents Upload */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium text-white flex items-center gap-2 border-b border-zinc-800 pb-2">
+                                <FileText className="w-5 h-5 text-purple-400" /> Documents & Verification
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {/* Photo Upload */}
+                                <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition">
+                                    <label className="block text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <ImageIcon className="w-4 h-4 text-[#bef264]" /> Tenant Photo
+                                    </label>
+                                    <div className="flex flex-col items-center gap-2">
+                                        {formData.photo_url ? (
+                                            <div className="relative w-full h-32 bg-black rounded-lg overflow-hidden border border-zinc-700">
+                                                <img src={formData.photo_url} alt="Photo" className="w-full h-full object-cover" />
+                                                <button type="button" onClick={() => setFormData(p => ({ ...p, photo_url: '' }))} className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full text-xs">✕</button>
+                                            </div>
+                                        ) : (
+                                            <label className="w-full h-32 flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 rounded-lg cursor-pointer hover:border-[#bef264] hover:bg-zinc-800/50 transition">
+                                                <Upload className="w-6 h-6 text-zinc-500 mb-1" />
+                                                <span className="text-xs text-zinc-500">Upload Photo</span>
+                                                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleFileUpload(e, 'photo')} />
+                                            </label>
+                                        )}
+                                        {fileStatus.photo.uploading && <span className="text-xs text-[#bef264]">Uploading...</span>}
+                                    </div>
+                                </div>
+
+                                {/* Aadhar Upload */}
+                                <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition">
+                                    <label className="block text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-blue-400" /> Aadhar Card
+                                    </label>
+                                    <div className="flex flex-col items-center gap-2">
+                                        {formData.id_proof_url ? (
+                                            <div className="flex items-center gap-2 text-green-400 text-xs bg-green-500/10 px-3 py-2 rounded-lg w-full">
+                                                <FileText className="w-4 h-4" /> Uploaded
+                                                <button type="button" onClick={() => setFormData(p => ({ ...p, id_proof_url: '' }))} className="ml-auto text-red-400 hover:text-red-300">Remove</button>
+                                            </div>
+                                        ) : (
+                                            <label className="w-full h-32 flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-zinc-800/50 transition">
+                                                <Upload className="w-6 h-6 text-zinc-500 mb-1" />
+                                                <span className="text-xs text-zinc-500">Upload Aadhar</span>
+                                                <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'aadhar')} />
+                                            </label>
+                                        )}
+                                        {fileStatus.aadhar.uploading && <span className="text-xs text-blue-400">Uploading...</span>}
+                                    </div>
+                                </div>
+
+                                {/* Address Proof Upload */}
+                                <div className="bg-zinc-900/50 p-4 rounded-lg border border-zinc-800 hover:border-zinc-700 transition">
+                                    <label className="block text-sm font-medium text-zinc-300 mb-2 flex items-center gap-2">
+                                        <MapPin className="w-4 h-4 text-red-400" /> Address Proof
+                                    </label>
+                                    <div className="flex flex-col items-center gap-2">
+                                        {formData.address_proof_url ? (
+                                            <div className="flex items-center gap-2 text-green-400 text-xs bg-green-500/10 px-3 py-2 rounded-lg w-full">
+                                                <FileText className="w-4 h-4" /> Uploaded
+                                                <button type="button" onClick={() => setFormData(p => ({ ...p, address_proof_url: '' }))} className="ml-auto text-red-400 hover:text-red-300">Remove</button>
+                                            </div>
+                                        ) : (
+                                            <label className="w-full h-32 flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 rounded-lg cursor-pointer hover:border-red-400 hover:bg-zinc-800/50 transition">
+                                                <Upload className="w-6 h-6 text-zinc-500 mb-1" />
+                                                <span className="text-xs text-zinc-500">Upload Address</span>
+                                                <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => handleFileUpload(e, 'address')} />
+                                            </label>
+                                        )}
+                                        {fileStatus.address.uploading && <span className="text-xs text-red-400">Uploading...</span>}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. Room Assignment */}
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-medium text-white flex items-center gap-2 border-b border-zinc-800 pb-2">
+                                <Building2 className="w-5 h-5 text-blue-400" /> Room & Rent
+                            </h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div>
-                                    <label htmlFor="room_id" className="block text-sm font-medium text-gray-700 mb-2">
+                                    <label htmlFor="room_id" className="block text-sm font-medium text-zinc-400 mb-2">
                                         Assign Room
                                     </label>
                                     <select
                                         id="room_id"
                                         value={formData.room_id}
                                         onChange={(e) => setFormData({ ...formData, room_id: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
                                     >
                                         <option value="">No room assigned</option>
                                         {rooms.map((room) => (
                                             <option key={room.id} value={room.id}>
-                                                Room {room.room_number} - Floor {room.floors.floor_number} ({room.floors.buildings.name})
+                                                Room {room.room_number} - {room.floors.buildings.name}
                                             </option>
                                         ))}
                                     </select>
-                                    <p className="mt-1 text-xs text-gray-500">Can be assigned later</p>
                                 </div>
 
                                 <div>
-                                    <label htmlFor="individual_rent" className="block text-sm font-medium text-gray-700 mb-2">
-                                        Monthly Rent (₹) *
+                                    <label htmlFor="individual_rent" className="block text-sm font-medium text-zinc-400 mb-2">
+                                        Monthly Rent (₹)
                                     </label>
-                                    <input
-                                        id="individual_rent"
-                                        type="number"
-                                        required
-                                        min="0"
-                                        step="0.01"
-                                        value={formData.individual_rent}
-                                        onChange={(e) => setFormData({ ...formData, individual_rent: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                        placeholder="5000"
-                                    />
+                                    <div className="relative">
+                                        <IndianRupee className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="individual_rent"
+                                            type="number"
+                                            required
+                                            min="0"
+                                            step="0.01"
+                                            value={formData.individual_rent}
+                                            onChange={(e) => setFormData({ ...formData, individual_rent: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors"
+                                            placeholder="e.g. 5000"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div>
-                                    <label htmlFor="join_date" className="block text-sm font-medium text-gray-700 mb-2">
-                                        Join Date *
+                                    <label htmlFor="join_date" className="block text-sm font-medium text-zinc-400 mb-2">
+                                        Join Date
                                     </label>
-                                    <input
-                                        id="join_date"
-                                        type="date"
-                                        required
-                                        value={formData.join_date}
-                                        onChange={(e) => setFormData({ ...formData, join_date: e.target.value })}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
-                                    />
+                                    <div className="relative">
+                                        <Calendar className="absolute left-3 top-3.5 w-5 h-5 text-zinc-600" />
+                                        <input
+                                            id="join_date"
+                                            type="date"
+                                            required
+                                            value={formData.join_date}
+                                            onChange={(e) => setFormData({ ...formData, join_date: e.target.value })}
+                                            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#bef264] focus:ring-1 focus:ring-[#bef264] transition-colors scheme-dark"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         {/* Info Box */}
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                            <h4 className="text-sm font-medium text-blue-900 mb-2">What happens next?</h4>
-                            <ul className="text-sm text-blue-800 space-y-1">
-                                <li>• Tenant will receive login credentials via email/SMS</li>
-                                <li>• They can login using email or phone OTP</li>
-                                <li>• Rent cycles will be auto-generated from next month</li>
-                                <li>• You can edit tenant details anytime</li>
+                        <div className="bg-[#bef264]/5 border border-[#bef264]/20 rounded-lg p-4">
+                            <h4 className="text-sm font-bold text-[#bef264] mb-2 flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4" /> Account Details
+                            </h4>
+                            <ul className="text-sm text-zinc-400 space-y-1 list-disc list-inside">
+                                <li>The tenant can login using this <strong>Email</strong> or <strong>Phone</strong>.</li>
+                                <li>Default password is: <span className="text-white font-mono bg-zinc-800 px-1 rounded">Tenant@123</span> (They should change it)</li>
                             </ul>
                         </div>
 
                         {/* Submit Buttons */}
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 pt-4">
                             <Link
                                 href="/admin/tenants"
-                                className="flex-1 px-6 py-3 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition text-center"
+                                className="flex-1 px-6 py-3 border border-zinc-700 rounded-lg text-zinc-300 font-medium hover:bg-zinc-800 hover:text-white transition text-center"
                             >
                                 Cancel
                             </Link>
                             <button
                                 type="submit"
-                                disabled={loading}
-                                className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                                disabled={loading || Object.values(fileStatus).some(f => f.uploading)}
+                                className="flex-1 px-6 py-3 bg-[#bef264] text-black rounded-lg font-bold hover:bg-[#a3d929] disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
                             >
-                                {loading ? 'Creating...' : 'Create Tenant'}
+                                {loading ? 'Creating Account...' : <><Save className="w-4 h-4" /> Create Tenant Account</>}
                             </button>
                         </div>
                     </form>

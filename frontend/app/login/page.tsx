@@ -20,23 +20,65 @@ export default function LoginPage() {
         setMessage(null)
 
         try {
-            const { error } = await supabase.auth.signInWithOtp({
+            // Validate email
+            if (!email || !email.includes('@')) {
+                throw new Error('Please enter a valid email address')
+            }
+
+            const { error, data } = await supabase.auth.signInWithOtp({
                 email,
                 options: {
                     emailRedirectTo: `${window.location.origin}/auth/callback`,
                 },
             })
 
-            if (error) throw error
+            if (error) {
+                console.error('Supabase auth error:', error)
+                // Provide more helpful error messages for common issues
+                if (error.message?.includes('confirmation email') || error.message?.includes('sending')) {
+                    throw new Error(
+                        'SMTP configuration error. Please check your Supabase SMTP settings. ' +
+                        'If using Gmail, you need to use an App Password, not your regular password.'
+                    )
+                }
+                throw error
+            }
 
             setMessage({
                 type: 'success',
                 text: 'Check your email for the magic link!',
             })
         } catch (error: any) {
+            console.error('Login error:', error)
+            let errorMessage = 'Failed to send magic link'
+
+            // Handle different error types
+            if (error?.message) {
+                errorMessage = error.message
+            } else if (error?.status === 500 || error?.status === 503) {
+                errorMessage = 'Server error. Please check your Supabase SMTP configuration or try phone login instead.'
+            } else if (error?.name === 'AuthRetryableFetchError' || error?.name === 'AuthApiError') {
+                // Check if it's an SMTP error
+                if (error?.message?.includes('confirmation email') || error?.message?.includes('sending')) {
+                    errorMessage = 'SMTP configuration error. Please check Supabase SMTP settings or use phone login.'
+                } else {
+                    errorMessage = 'Connection error. Please check your internet connection and Supabase project status.'
+                }
+            } else if (error instanceof TypeError && error.message?.includes('fetch')) {
+                errorMessage = 'Cannot connect to Supabase. Please check your environment variables in .env.local'
+            }
+
+            // Log full error for debugging
+            console.error('Full error details:', {
+                name: error?.name,
+                message: error?.message,
+                status: error?.status,
+                error: error
+            })
+
             setMessage({
                 type: 'error',
-                text: error.message || 'Failed to send magic link',
+                text: errorMessage,
             })
         } finally {
             setLoading(false)

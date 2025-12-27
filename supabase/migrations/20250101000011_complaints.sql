@@ -127,6 +127,13 @@ CREATE TRIGGER complaint_status_notification
   WHEN (NEW.status IS DISTINCT FROM OLD.status)
   EXECUTE FUNCTION notify_complaint_update();
 
+-- Add foreign key constraint for notifications (created after complaints table)
+ALTER TABLE public.notifications
+  ADD CONSTRAINT notifications_related_complaint_id_fkey 
+  FOREIGN KEY (related_complaint_id) 
+  REFERENCES public.complaints(id) 
+  ON DELETE SET NULL;
+
 -- Comments
 COMMENT ON TABLE public.complaints IS 'Tenant complaints and maintenance requests';
 COMMENT ON COLUMN public.complaints.category IS 'Type of complaint/issue';

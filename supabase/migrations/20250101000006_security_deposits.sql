@@ -1,11 +1,18 @@
 -- Migration: Security Deposits
 -- Tracks security deposit payments, refunds, and deductions
 
+-- Create payment_mode ENUM type (used by both security_deposits and payments)
+DO $$ BEGIN
+  CREATE TYPE payment_mode AS ENUM ('ONLINE_GATEWAY', 'CASH', 'BANK_TRANSFER', 'UPI_MANUAL');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.security_deposits (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
   amount DECIMAL(10, 2) NOT NULL CHECK (amount > 0),
-  payment_mode TEXT NOT NULL CHECK (payment_mode IN ('ONLINE_GATEWAY', 'CASH', 'BANK_TRANSFER', 'UPI_MANUAL')),
+  payment_mode payment_mode NOT NULL,
   payment_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   status TEXT NOT NULL CHECK (status IN ('held', 'refunded', 'partially_refunded', 'forfeited')) DEFAULT 'held',
   

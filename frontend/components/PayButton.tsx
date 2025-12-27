@@ -6,7 +6,7 @@ import Script from 'next/script'
 
 interface PayButtonProps {
     amount: number
-    rentCycleId: string
+    rentCycleId?: string | null // null = pay all pending cycles
     buttonText?: string
     className?: string
 }
@@ -24,11 +24,14 @@ export default function PayButton({ amount, rentCycleId, buttonText = "Pay Now",
     const handlePayment = async () => {
         setLoading(true)
         try {
-            // 1. Create Order
+            // 1. Create Order (rentCycleId can be null for multi-cycle payments)
             const res = await fetch('/api/razorpay/order', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ amount, rentCycleId })
+                body: JSON.stringify({ 
+                    amount, 
+                    rentCycleId: rentCycleId || null // Explicitly pass null if undefined
+                })
             })
 
             const orderData = await res.json()
@@ -41,7 +44,7 @@ export default function PayButton({ amount, rentCycleId, buttonText = "Pay Now",
                 amount: orderData.amount,
                 currency: orderData.currency,
                 name: "Shantivaas Rental",
-                description: `Rent Payment`,
+                description: rentCycleId ? `Rent Payment` : `Rent Payment (Multiple Cycles)`,
                 order_id: orderData.orderId,
                 handler: async function (response: any) {
                     // 3. Verify Payment
@@ -53,7 +56,7 @@ export default function PayButton({ amount, rentCycleId, buttonText = "Pay Now",
                                 razorpay_order_id: response.razorpay_order_id,
                                 razorpay_payment_id: response.razorpay_payment_id,
                                 razorpay_signature: response.razorpay_signature,
-                                rentCycleId,
+                                rentCycleId: rentCycleId || null,
                                 amount
                             })
                         })

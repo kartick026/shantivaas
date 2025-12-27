@@ -43,7 +43,7 @@ export async function POST(req: Request) {
                     const { data: existing } = await supabase
                         .from('payments')
                         .select('id')
-                        .eq('gateway_transaction_id', payment.id)
+                        .eq('razorpay_payment_id', payment.id)
                         .single()
 
                     if (!existing) {
@@ -54,7 +54,8 @@ export async function POST(req: Request) {
                             amount: payment.amount / 100, // Convert from paise
                             payment_date: new Date().toISOString().split('T')[0],
                             payment_mode: 'ONLINE_GATEWAY',
-                            gateway_transaction_id: payment.id,
+                            razorpay_payment_id: payment.id,
+                            razorpay_order_id: payment.order_id,
                             is_verified: true,
                             notes: `Webhook: Order ${payment.order_id}`
                         })

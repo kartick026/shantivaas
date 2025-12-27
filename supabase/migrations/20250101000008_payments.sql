@@ -2,7 +2,12 @@
 -- Stores all payment transactions (online + manual)
 -- Online payments verified via Razorpay webhook, manual payments tracked by admin
 
-CREATE TYPE payment_mode AS ENUM ('ONLINE_GATEWAY', 'CASH', 'BANK_TRANSFER', 'UPI_MANUAL');
+-- payment_mode ENUM already created in security_deposits migration
+-- DO $$ BEGIN
+--   CREATE TYPE payment_mode AS ENUM ('ONLINE_GATEWAY', 'CASH', 'BANK_TRANSFER', 'UPI_MANUAL');
+-- EXCEPTION
+--   WHEN duplicate_object THEN null;
+-- END $$;
 
 CREATE TABLE IF NOT EXISTS public.payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

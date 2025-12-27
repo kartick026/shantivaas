@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   
   -- Related entities (for context)
   related_payment_id UUID REFERENCES public.payments(id),
-  related_complaint_id UUID REFERENCES public.complaints(id),
+  related_complaint_id UUID, -- Foreign key added in complaints migration
   
   created_at TIMESTAMPTZ DEFAULT NOW(),
   read_at TIMESTAMPTZ

@@ -14,9 +14,11 @@ export async function POST(req: Request) {
 
         const { amount, rentCycleId } = await req.json()
 
-        if (!amount || !rentCycleId) {
-            return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+        if (!amount) {
+            return NextResponse.json({ error: 'Amount is required' }, { status: 400 })
         }
+        
+        // rentCycleId is optional (null for multi-cycle/advance payments)
 
         // Initialize Razorpay
         const razorpay = new Razorpay({
@@ -26,12 +28,13 @@ export async function POST(req: Request) {
 
         // Create Order
         // Amount must be in subunits (paise for INR)
+        const receiptId = rentCycleId ? `rc_${rentCycleId}` : `multi_${Date.now()}`
         const options = {
             amount: Math.round(amount * 100),
             currency: "INR",
-            receipt: `rc_${rentCycleId}`,
+            receipt: receiptId,
             notes: {
-                rent_cycle_id: rentCycleId,
+                rent_cycle_id: rentCycleId || null, // null for multi-cycle
                 user_id: user.id
             }
         }
