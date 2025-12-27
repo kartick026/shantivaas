@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { formatCurrency, formatDate } from '@/lib/utils'
+import PayButton from '@/components/PayButton'
 
 export default async function TenantDashboardPage() {
     const supabase = await createClient()
@@ -186,13 +187,15 @@ export default async function TenantDashboardPage() {
                     <div className="bg-white rounded-lg shadow">
                         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
                             <h2 className="text-lg font-semibold text-gray-900">Rent Payment Status</h2>
-                            {stats.totalDue > 0 && (
-                                <a
-                                    href="/tenant/pay-rent"
-                                    className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
-                                >
-                                    Pay Now →
-                                </a>
+                            {stats.totalDue > 0 && rentCycles && rentCycles.some((rc: any) => rc.status !== 'paid') && (
+                                <div className="text-right">
+                                    <PayButton
+                                        amount={rentCycles.find((rc: any) => rc.status !== 'paid')?.amount_due || 0}
+                                        rentCycleId={rentCycles.find((rc: any) => rc.status !== 'paid')?.id || ''}
+                                        className="text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                                        buttonText="Pay Pending →"
+                                    />
+                                </div>
                             )}
                         </div>
                         <div className="p-6">
@@ -216,14 +219,24 @@ export default async function TenantDashboardPage() {
                                                 <div className="text-right">
                                                     <span
                                                         className={`px-3 py-1 text-xs font-medium rounded-full ${isPaid
-                                                                ? 'bg-green-100 text-green-800'
-                                                                : isOverdue
-                                                                    ? 'bg-red-100 text-red-800'
-                                                                    : 'bg-yellow-100 text-yellow-800'
+                                                            ? 'bg-green-100 text-green-800'
+                                                            : isOverdue
+                                                                ? 'bg-red-100 text-red-800'
+                                                                : 'bg-yellow-100 text-yellow-800'
                                                             }`}
                                                     >
                                                         {cycle.status}
                                                     </span>
+                                                    {!isPaid && (
+                                                        <div className="mt-2">
+                                                            <PayButton
+                                                                amount={cycle.amount_due}
+                                                                rentCycleId={cycle.id}
+                                                                buttonText="Pay"
+                                                                className="px-3 py-1 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700"
+                                                            />
+                                                        </div>
+                                                    )}
                                                     {totalPaid > 0 && !isPaid && (
                                                         <div className="text-xs text-gray-500 mt-1">
                                                             Paid: {formatCurrency(totalPaid)}
@@ -298,12 +311,12 @@ export default async function TenantDashboardPage() {
                                                 </div>
                                                 <span
                                                     className={`px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap ml-4 ${complaint.status === 'open'
-                                                            ? 'bg-red-100 text-red-800'
-                                                            : complaint.status === 'in_progress'
-                                                                ? 'bg-yellow-100 text-yellow-800'
-                                                                : complaint.status === 'resolved'
-                                                                    ? 'bg-green-100 text-green-800'
-                                                                    : 'bg-gray-100 text-gray-800'
+                                                        ? 'bg-red-100 text-red-800'
+                                                        : complaint.status === 'in_progress'
+                                                            ? 'bg-yellow-100 text-yellow-800'
+                                                            : complaint.status === 'resolved'
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : 'bg-gray-100 text-gray-800'
                                                         }`}
                                                 >
                                                     {complaint.status.replace('_', ' ')}
@@ -342,12 +355,12 @@ export default async function TenantDashboardPage() {
                                     You have {formatCurrency(stats.totalDue)} pending. Please pay at your earliest convenience.
                                 </p>
                             </div>
-                            <a
-                                href="/tenant/pay-rent"
+                            <PayButton
+                                amount={stats.totalDue}
+                                rentCycleId={rentCycles?.find((rc: any) => rc.status !== 'paid')?.id || ''}
                                 className="px-6 py-3 bg-red-600 text-white font-medium rounded-lg hover:bg-red-700 transition whitespace-nowrap"
-                            >
-                                Pay Now
-                            </a>
+                                buttonText="Pay Now"
+                            />
                         </div>
                     </div>
                 )}
